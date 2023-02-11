@@ -2,13 +2,16 @@
 import pandas as pd
 import numpy as np
 import re
+import torch
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
 
 class CleanData:
     """
     Loads Wikipedia talk page edits data, clean it, tokenize, pad, and returns list of lists of tokenized and padded sequences ready for training
     """
         
-    def __init__(self, data_path="train.csv", threshold=0.1, frac=0.7, perc=0.1):
+    def __init__(self, data_path="train.csv", threshold=0.1, frac=0.7, perc=0.1, seq_length=200, batch_size=50):
         """
         threshold: fraction of how much OOV words appear in the training data
         frac: train-test split fraction
@@ -17,6 +20,8 @@ class CleanData:
         self.threshold  = threshold
         self.frac = frac
         self.perc = perc 
+        self.seq_length = seq_length
+        self.batch_size = batch_size
         # load data
         self.data = pd.read_csv(data_path) 
 
@@ -24,11 +29,14 @@ class CleanData:
         self.train_comments = None
         self.vocab_unique = None
         self.word2index = None
+
+        # # used for repeated sampling until 41 classes are realized
+        # self.recursive_counter = 0
         
 
     def pre_process_train(self):
         reviews = self.subsample_train()
-        comments, labels = reviews["comment_text"], reviews["class"].values()
+        comments, labels = reviews["comment_text"], reviews["class"].values
         review_vocab = set()
         # populate review_vocab with all of the words in the given reviews
         #       Remember to split reviews into individual words 
@@ -55,6 +63,8 @@ class CleanData:
         
         #  tokenize training reviews
         self.train_comments = self.tokenize(comments)
+        # pad training data
+        self.train_comments = self.padding(self.train_comments, self.seq_length)
         self.train_labels = labels
     
     def tokenize(self, comments):
@@ -82,8 +92,8 @@ class CleanData:
 
     def pre_process_test(self):
         # tokenize test reviews
-        _, test_reviews = self.train_test_split()
-        test_reviews, test_labels = test_reviews["comment_text"], test_reviews["class"].values()
+        _, test_reviews = self.data_split()
+        test_reviews, test_labels = test_reviews["comment_text"], test_reviews["class"].values
         test_comments = []
         for review in test_reviews:
             indices = []
@@ -95,8 +105,10 @@ class CleanData:
                 else:
                     indices.append(1)            # this is an OOV word
             test_comments.append(indices)
-        self.test_comments = test_comments
-        self.test_labels = test_labels
+        # pad test data
+        test_comments_padded = self.padding(test_comments, self.seq_length)
+        # split test data into test and validation sets
+        self.test_comments, self.val_comments, self.test_labels, self.val_labels = train_test_split(test_comments_padded, test_labels, test_size=0.33, random_state=9)
         
 
     def powerset(self):
@@ -116,22 +128,30 @@ class CleanData:
         data['class'] = data['combination'].factorize()[0]
         return data
 
-    def train_test_split(self):
+    def data_split(self):
         data = self.powerset()
         # split data into train and test 
         train_data = data.sample(frac=self.frac)
         test_data = data.drop(train_data.index)
         return train_data, test_data
     
-    recursive_counter = 0
     def subsample_train(self):
         """
         Subsampling from the `neutral` class only
         Split the dataframe into two, one containing only the `neutral` class and the other, the rest of the classes
         We subsample the `neutral` class
         Merge the subsample with the dataframe containing the other classes
-        """
-        data, _ = self.train_test_split()
+        """        
+        i = 0
+        while i < 1000:
+           no_of_classes, new_data = self.repeat_sample()
+           if no_of_classes == 41:
+               return new_data
+           i += 1
+        print("The fraction for this train-test split is too small to ensure all the 41 unique classes are in the training set")
+    
+    def repeat_sample(self):
+        data, _ = self.data_split()
         neutral_data= data.loc[data['class']==0]
         # subsample the neutral class
         neutral_sub = neutral_data.sample(frac=self.perc)
@@ -141,17 +161,34 @@ class CleanData:
         new_data = pd.concat([train_data_new, neutral_sub], axis='rows')
         # ensure number of classes is 41 to avoid missing any class in the training data
         no_of_classes = len(np.unique(new_data['class'].values))
-        global recursive_counter
-        recursive_counter += 1
-        if no_of_classes != 41 and recursive_counter <= 1000:
-            new_data = self.subsample_train()
-        if recursive_counter > 1000:
-            assert recursive_counter <= 1000, "The fraction for this train-test split is too small to ensure all the 41 unique classes are in the training set"
-        return new_data
-    
-    def padding(self):
-        """
-        continue here next time
-        """
-        pass
+        return no_of_classes, new_data
 
+    def padding(self, reviews_ints, seq_length):
+        ''' Return features of review_ints, where each review is padded with 0's or truncated to the input seq_length.
+        '''
+        
+        # getting the correct rows x cols shape
+        features = np.zeros((len(reviews_ints), seq_length), dtype=int)
+
+        # for each review, I grab that review and 
+        for i, row in enumerate(reviews_ints):
+            features[i, -len(row):] = np.array(row)[:seq_length]
+        return features
+    
+    def to_dataloader(self):
+        """
+        takes in train, test, val data, and their corresponding labels and return pytorch dataloader
+        """
+        # create Tensor datasets
+        train_data = TensorDataset(torch.from_numpy(self.train_comments), torch.from_numpy(self.train_labels))
+        valid_data = TensorDataset(torch.from_numpy(self.val_comments), torch.from_numpy(self.val_labels))
+        test_data = TensorDataset(torch.from_numpy(self.test_comments), torch.from_numpy(self.test_labels))
+
+        # make sure the SHUFFLE your training data
+        train_loader = DataLoader(train_data, shuffle=True, batch_size=self.batch_size, drop_last=True)
+        valid_loader = DataLoader(valid_data, shuffle=True, batch_size=self.batch_size, drop_last=True)
+        test_loader = DataLoader(test_data, shuffle=True, batch_size=self.batch_size, drop_last=True)
+        return train_loader, test_loader, valid_loader
+    
+if __name__ == '__main__':
+    process = CleanData()
