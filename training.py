@@ -9,6 +9,7 @@ preprocess.pre_process_test()
 
 # First checking if GPU is available
 train_on_gpu=torch.cuda.is_available()
+# train_on_gpu = False      # test the model before moving to GPU
 if(train_on_gpu):
     print('Training on GPU.')
 else:
@@ -20,7 +21,7 @@ output_size = 41
 embedding_dim = 200
 hidden_dim = 128
 n_layers = 2
-lr=0.0001
+lr=0.000004
 
 vocab_size = preprocess.review_vocab_size + 2 # +1 for the 0 padding and +1 for 
 class Training:
@@ -31,7 +32,7 @@ class Training:
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
         
-    def train(self, epochs=10, print_every=500, clip=5):
+    def train(self, epochs=30, print_every=500, clip=5):
         train_loader, _ , valid_loader = preprocess.to_dataloader()
         counter = 0
         print_every = print_every
@@ -144,9 +145,60 @@ class Training:
         # accuracy over all test data
         test_acc = num_correct/len(test_loader.dataset)
         print("Test accuracy: {:.3f}".format(test_acc))
+        return test_acc
 
 
 if __name__ == "__main__":
-    training = Training()
-    training.train()
+    import time
+    import pickle
+    # training = Training()
+    # training.train()
+    # training.test()
+    now = time.time()
+    l_rate = np.linspace(1e-06, 0.01, 700)
+    no_layers = np.arange(1,10)
+    embedding_dimen = np.arange(20, 1000, 5)
+    hidden_dimen = np.arange(20, 1000, 5)
+    batch_size = np.arange(20, 200, 10)
+    seq_length = np.arange(20, 1000, 20)
+    epochs = np.arange(2, 30)
+    
+
+    myparams = ["l_rate", "no_layers", "embedding_dimen", "hidden_dimen", "batch_size", "seq_length", "epochs"]
+    
+    params_re = {name:[] for name in myparams}
+    accuracy = []
+
+    for lr in l_rate:
+        for n_layers in no_layers:
+            for embedding_dim in embedding_dimen:
+                for hidden_dim in hidden_dimen:
+                    for batch in batch_size:
+                        for seq_len in seq_length:
+                            for epoch in epochs:
+                                params = [lr, n_layers, embedding_dim, hidden_dim, batch, seq_len, epoch]
+                                intermediate = []
+                                for _ in range(10):
+                                    preprocess = CleanData(seq_length=seq_len, batch_size=int(batch))
+                                    preprocess.pre_process_train()
+                                    preprocess.pre_process_test()
+                                    vocab_size = preprocess.review_vocab_size + 2 # +1 for the 0 padding and +1 for OOV words
+                                    training = Training(vocab_size=vocab_size, output_size=41, embedding_dim=embedding_dim, hidden_dim=hidden_dim, n_layers=n_layers, lr=lr)
+                                    training.train(epochs=epoch)
+                                    test_out = training.test()
+                                    intermediate.append(test_out)
+                                for i, name in enumerate(myparams):
+                                    params_re[name] = params[i]
+                                    print(name + ": ", params[i], end="  ") 
+                                    print()                                      
+                                accuracy.append(sum(intermediate)/len(intermediate))
+    with open("grid_search_output.pickle", 'wb') as saveto:
+        pickle.dump(params_re, saveto, protocol=pickle.HIGHEST_PROTOCOL)
+    with open("grid_search_accuracy.pickle", 'wb') as f:
+        pickle.dump(accuracy, f, protocol=pickle.HIGHEST_PROTOCOL)
+    end = time.time()
+    print("Total time for the grid search is: {} hours".format((end - now)/3600))
+                                
+
+
     
