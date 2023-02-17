@@ -1,4 +1,5 @@
 import  numpy as np
+from numpy.random import choice
 import torch
 from model import ToxicComment
 from preprocessing import CleanData
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     embedding_dimen = np.arange(20, 1000, 5)
     hidden_dimen = np.arange(20, 1000, 5)
     batch_size = np.arange(20, 200, 10)
-    seq_length = np.arange(20, 1000, 20)
+    seq_length = np.arange(20, 600, 20)
     epochs = np.arange(2, 30)
     
 
@@ -169,29 +170,28 @@ if __name__ == "__main__":
     params_re = {name:[] for name in myparams}
     accuracy = []
 
-    for lr in l_rate:
-        for n_layers in no_layers:
-            for embedding_dim in embedding_dimen:
-                for hidden_dim in hidden_dimen:
-                    for batch in batch_size:
-                        for seq_len in seq_length:
-                            for epoch in epochs:
-                                params = [lr, n_layers, embedding_dim, hidden_dim, batch, seq_len, epoch]
-                                intermediate = []
-                                for _ in range(10):
-                                    preprocess = CleanData(seq_length=seq_len, batch_size=int(batch))
-                                    preprocess.pre_process_train()
-                                    preprocess.pre_process_test()
-                                    vocab_size = preprocess.review_vocab_size + 2 # +1 for the 0 padding and +1 for OOV words
-                                    training = Training(vocab_size=vocab_size, output_size=41, embedding_dim=embedding_dim, hidden_dim=hidden_dim, n_layers=n_layers, lr=lr)
-                                    training.train(epochs=epoch)
-                                    test_out = training.test()
-                                    intermediate.append(test_out)
-                                for i, name in enumerate(myparams):
-                                    params_re[name] = params[i]
-                                    print(name + ": ", params[i], end="  ") 
-                                    print()                                      
-                                accuracy.append(sum(intermediate)/len(intermediate))
+
+    params = [l_rate, no_layers, embedding_dimen, hidden_dimen, batch_size, seq_length, epochs]
+    for _ in range(1000):
+        # print("Say something")
+        param_choice = [choice(name) for name in params]
+        intermediate = []
+        print(param_choice)
+        for j in range(10):
+            preprocess = CleanData(seq_length=param_choice[5], batch_size=int(param_choice[4]))
+            preprocess.pre_process_train()
+            preprocess.pre_process_test()
+            vocab_size = preprocess.review_vocab_size + 2 # +1 for the 0 padding and +1 for OOV words
+            training = Training(vocab_size=vocab_size, output_size=41, embedding_dim=param_choice[2], hidden_dim=param_choice[3], n_layers=param_choice[1], lr=lr)
+            training.train(epochs=param_choice[6])
+            test_out = training.test()
+            intermediate.append(test_out)
+            print(f"Iteration ==================> {j+1}/10")
+        for i, name in enumerate(myparams):
+            params_re[name] = param_choice[i]
+            print(name + ": ", params[i], end="  ") 
+        print()                                      
+        accuracy.append(sum(intermediate)/len(intermediate))
     with open("grid_search_output.pickle", 'wb') as saveto:
         pickle.dump(params_re, saveto, protocol=pickle.HIGHEST_PROTOCOL)
     with open("grid_search_accuracy.pickle", 'wb') as f:
