@@ -170,9 +170,9 @@ if __name__ == "__main__":
     params_re = {name:[] for name in myparams}
     accuracy = []
 
-
+    m = 1000
     params = [l_rate, no_layers, embedding_dimen, hidden_dimen, batch_size, seq_length, epochs]
-    for _ in range(1000):
+    for _ in range(m):
         # print("Say something")
         param_choice = [choice(name) for name in params]
         intermediate = []
@@ -189,8 +189,8 @@ if __name__ == "__main__":
             print(f"Iteration ==================> {j+1}/10")
         for i, name in enumerate(myparams):
             params_re[name] = param_choice[i]
-            print(name + ": ", params[i], end="  ") 
-        print()                                      
+            print(name + ": ", param_choice[i], end="  ") 
+        print(f"Parameter set: {_}/{m}")                                      
         accuracy.append(sum(intermediate)/len(intermediate))
     with open("grid_search_output.pickle", 'wb') as saveto:
         pickle.dump(params_re, saveto, protocol=pickle.HIGHEST_PROTOCOL)
